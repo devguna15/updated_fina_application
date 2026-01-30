@@ -79,134 +79,59 @@ def build_final_prompt(hs_code, domain, item_description, reference_attributes_j
 You are a Lead Trade Data Taxonomist for a global trade intelligence platform.
 
 Your task is to generate the final customer-facing flat JSON attribute map for a product, by using:
-
 - Parent Reference Attributes (from HS4 database)
 - Child Item Description (from website listing)
 - HS Code + Domain
 
-
-
- INPUTS
-
+INPUTS
 - HS Code: {hs_code}
 - Domain: {domain}
 - Item Description (Child): {item_description}
 - Reference Attributes JSON (Parent): {reference_attributes_json}
 
+STEP 1 — INTERNAL ALIGNMENT (DO NOT OUTPUT)
 
+Perform this four-gate analysis before generating the final JSON:
 
- STEP 1 — INTERNAL ALIGNMENT (DO NOT OUTPUT)
+GATE 1: SCHEMA SELECTION (THE KEYS)
+Identify all keys from the Parent JSON that are technically relevant to the identified Product Type and Item Description. Finalize this list of keys to create a professional technical schema, regardless of whether the Parent values are currently accurate.
 
-Before generating final JSON, internally analyze:
+GATE 2: VALUE PRIORITIZATION (THE TRUTH)
+For each finalized key, scan the Item Description. If a specific value, measurement, or technical detail exists in the description, you MUST assign that value to the key. This is the absolute highest priority.
 
-1. Treat Reference Attributes as Parent attribute universe
-2. Treat Item Description as Child product instance
-3. For every Parent attribute, decide one of these:
-    - INHERIT DIRECTLY → keep same key and value
-    - FILTER VALUES → keep key but select only relevant values from list
-    - UPDATE VALUE → keep key but replace value using Item Description
-    - DROP ATTRIBUTE → if not relevant to this item description
-4. Identify if Item Description contains any new explicit attributes not present in Parent**, and add them only if fully supported.
+GATE 3: SANITY CHECK & PROFESSIONAL GENERALIZATION (THE AUDIT)
+If the Item Description has no information for a finalized key, audit the Parent value:
+- Numerical/Specific Noise: "Is this value a specific, shipment-level detail (e.g., decimals, lot-specific weights, or unique identifiers)?"
+- Categorical Claims: "Is this value a specific claim about the product's source, manufacturer, or third-party certification that is not explicitly supported by the Child description?"
+- Scale Contradiction: "Does this value contradict the physical scale or commercial nature of the item described?"
+ACTION: If the value is suspicious or fails the sanity check, DO NOT omit the key. Instead, replace the value with a Category-Aware Generalization (see Step 2).
 
+GATE 4: CHILD-ONLY ATTRIBUTES (DISCOVERY)
+Analyze the Item Description for unique technical attributes not present in the Parent JSON. Include them only if they are domain-relevant and technically meaningful (e.g., Model Numbers, Certifications, Material Grades).
 
-
- ATTRIBUTE VALUE FILTERING
-
-For any attribute (whether from Parent or derived independently), assign only values that are clearly aligned with the item description and product type.
-
-When evaluating attribute values, retain only those that clearly match both the Child Item Description and the identified Product Type, and discard any value that belongs to a different product context or introduces noise.
-
-Avoid vague, generic, or tangential matches — assign only values that would make sense to an informed customer reading the product description**.
-
-Eliminate values that dilute product clarity or overlap semantically.
-
-For any list-type attribute (from Parent or Child):
-
-- Include a maximum of 5 values
-- Ensure all values are distinct, non-overlapping, and semantically unique
-- Each value must be clearly aligned with the Item Description and Product Type
-
-
-
- CAS NUMBER & CHEMICAL FORMULA RULE (CONDITIONAL — if hs code {hs_code} starts in this range 28–38 Only)
-
-If the HS Code starts from 28 to 38 (Chemical / Allied Industries), then apply CAS handling as follows:
-
-If the Parent Reference JSON contains a CAS Number attribute: assign only CAS values that are clearly and uniquely associated with the chemical/product type in the Item Description; if no parent CAS matches and the chemical name is unambiguous, first generate from domain knowledge only if highly confident , otherwise omit CAS.
-
-If the Parent Reference JSON does NOT contain a CAS Number attribute but the Item Description contains a chemical name: identify and assign the correct CAS Number and corresponding Chemical Formula from domain knowledge only if highly confident and unambiguous; otherwise omit both.
-
- STEP 2 — FINAL ATTRIBUTE GENERATION RULES (STRICT)
+STEP 2 — FINAL ATTRIBUTE GENERATION RULES
 
 1. PRODUCT IDENTITY
+- Output exactly one key: "Product Type". Must be derived only from the item description.
 
-- Output exactly one key: "Product Type".
-- "Product Type" must be a single string, derived only from the item description — never from Parent reference data.
-- Select the most specific and accurate product name based on the child-level description only. Do not generalize or pick alternate names from parent attributes.
-- Do not create "Product Type 2" or similar variants.
-- Never assign vague or generic values like "Goods" or "Materials".
+2. CATEGORY-AWARE GENERALIZATION (THE REFERENCE APPROACH)
+- If Gate 3 rejects a specific value, you must assign a professional placeholder based on the attribute's category. Use these templates as a guide for any domain:
+    - Technical/Performance Specs: "Standard Industrial Specification (Refer to Datasheet/Manual)"
+    - Entity Identification (Brand/MFR/Origin): "Refer to Product Label or Manufacturer Website"
+    - Legal/Regulatory/Safety (ISO/Compliance): "Contact Supplier for Relevant Documentation/Certificates"
+    - Chemical/Purity (Assays/Comps): "Standard Grade (Refer to Certificate of Analysis/Specification)"
+    - Physical Specs (Dimensions/Size): "Standard Industrial Size (Refer to Technical Drawing/Packaging)"
+    - Logistics (Weight/Volume/Quantities): "Calculated at Time of Shipping / As per Invoice"
+- EXTRAPOLATION RULE: For any other category, use a similar "Refer to [Source]" instruction that guides the user to the likely primary documentation for that product type.
+- PRESERVE UNITS: Keep units (%, mm, kg, etc.) exactly as written in the Item Description.
 
+STEP 3 — STRUCTURE
+- Output a SINGLE flat JSON object.
+- All list-type values must be standard JSON arrays: ["Value 1", "Value 2"]. Never include indices (0:, 1:).
+- No empty arrays, empty strings, or "N/A" values. Use a Generalization instead.
 
-
- 2. PARENT → CHILD INHERITANCE (MANDATORY)
-
-- The Parent attributes are the reference attribute universe
-- Use the Parent attributes as the first priority for extraction
-- Only keep Parent attributes if they are relevant to the Child Item Description
-
- Attribute handling rules:
-
-- If Parent attribute is universally true for the child → keep as-is
-- If Parent attribute has many values → select only values relevant to child description
-- If Parent attribute key is relevant but value differs → update the value using child description
-- If Parent attribute is not relevant to child → omit it
-
----
-
- 3. CHILD-ONLY ATTRIBUTES (ALLOWED BUT STRICT)
-
-After extracting relevant attributes from the Parent Reference JSON, independently analyze the Item Description and Domain to identify any additional missing attributes not previously captured.
-
-Only include attributes that are:
-
-- Explicitly stated or very strongly implied in the item description
-- Unique from previously extracted attributes
-- Domain-relevant and technically meaningful
-- All values must be precise, verifiable, and relevant to a knowledgeable customer
-
-
----
-
-4. VALUE RULES
-
-- Output only values that are explicitly stated, or clearly supported by the product type and domain
-- Preserve units exactly as written (%, mm, µm, mesh, kg, etc.)
-- Numeric fields must contain only numeric value + unit, without extra words
-- Consolidate ranges (e.g., "12–15%")
-- Do not output:
-    - Placeholder values like "N/A" or "Not specified"
-    - Repeated values or synonyms
-- All list-type attributes must be limited to 5 maximum values, whether extracted from Parent or Child
-
-
- STEP 3 — STRUCTURE
-
-- Output a SINGLE flat JSON object
-- No nesting
-- No repeated keys
-- No bullet points
-- No markdown
-- No explanation text
-- No hs code attribute
-- No Attributes with empty arrays or empty strings
-
-
-
- FINAL OUTPUT FORMAT
-
-Return ONLY a valid flat JSON object.
-
-Do not include any intermediate reasoning or comments.
+FINAL OUTPUT FORMAT
+Return ONLY a valid flat JSON object. Do not include intermediate reasoning or comments.
 """.strip()
 
 # -------------------------------
